@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 import concurrent.futures
 import threading
+import queue
 
 api_token = 'eyJraWQiOiJ0b2tlblNpZ25pbmciLCJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ2b3ZhbmtoYW5oQHplbml0ZWNoY3MuY29tIiwiaXNzIjoiYXV0aG4tdXMtZWFzdC0xLXByb2QiLCJkZXBsb3ltZW50X2lkIjoiNzE4MjIiLCJ0eXBlIjoidXNlciIsImV4cCI6MTcxNTQyMTcxMCwianRpIjoiNjEyNzI2NmMtMDUzNy00MzJkLWIzYzEtODQ0ZDZhY2EzZDQwIn0.mg1RZqZ1swfjETKfZqd9L55NcG__xkD4oRfZwknmLmBhbleFptVAzj8J7NTQY52nB67vNgGeN7z_jP3_piVhtA'
 headers = {'Authorization': f'ApiToken {api_token}'}
@@ -15,34 +16,20 @@ FINISHED = "FINISHED"
 RETRY = "RETRY"
 NUM_WORKERS = 4
 TIME_RANGE = 30
-
-def terminal_request_id(query_id):
-    url = 'https://usea1-016.sentinelone.net/web/api/v2.1/dv/cancel-query'
-    payload = {"queryId": query_id}
-    headers = {'Authorization': f'ApiToken {api_token}'}
-    # time.sleep(1)
-    try:
-        response = requests.post(
-            url, json=payload, headers=headers)  # Indicate success
-    except requests.exceptions.Timeout:
-        return terminal_request_id(query_id)
-    except requests.exceptions.RequestException as e:
-        return terminal_request_id(query_id)
-    if response.status_code == 200:
-       # print("success")
-        return 1  # Indicate success
-    return -1  # Indicate failure
+LOGS_LIMIT_PER_REQUEST = 1000
+SHORT_TIME_SLEEP = 5
+LONG_TIME_SLEEP = 40
 
 # read data to json
-def read_data_json(data, toDate):
+def read_data_json(data, to_date):
     try:
         # current_time = datetime.now()
         # Convert the timestamp to a human-readable format for the filename
-        # formatted_time = toDate.strftime('%Y-%m-%d_%H')
-        toDate_datetime = datetime.strptime(toDate, '%Y-%m-%dT%H:%M:%S.%fZ')
-        formatted_time = toDate_datetime.strftime('%Y-%m-%d_%H')
+        # formatted_time = to_date.strftime('%Y-%m-%d_%H')
+        to_date_datetime = datetime.strptime(to_date, '%Y-%m-%dT%H:%M:%S.%fZ')
+        formatted_time = to_date_datetime.strftime('%Y-%m-%d_%H')
         # Construct the filename
-        # filename = f'./logs/events_{toDate}.log'
+        # filename = f'./logs/events_{to_date}.log'
         filename = f'events_{formatted_time}.log'
         print("Writing events to file")
         for obj in data['data']:
@@ -52,7 +39,6 @@ def read_data_json(data, toDate):
                     file.write(json.dumps(obj) + '\n')
     except IOError as e:
         print("Error writing to file:", e)
-
 
 def increase_time_interval(to_date, time_range):
     new_to_date = calculate_new_to_date(to_date, time_range)
@@ -127,7 +113,8 @@ def get_query_status(query_id):
 
     print(f'{log_prefix} started getting status for queryId = {query_id}')
     # Wait for the service to process the query
-    time.sleep(4)
+    time.sleep(SHORT_TIME_SLEEP)
+
     res = requests.get(url, params=params, headers=headers)
     data = handle_response(res, log_prefix, get_query_status, query_id)
     progress_status, response_state = data['data']['progressStatus'], data['data']['responseState']
@@ -139,8 +126,6 @@ def get_query_status(query_id):
         return FINISHED
 
 def handle_response(res, func_name, fun, *args):
-    SHORT_TIME_SLEEP = 5
-    LONG_TIME_SLEEP = 40
     if res.status_code == 200:
         print(f'{func_name} done successfully')
         return res.json()
@@ -170,68 +155,57 @@ def handle_response(res, func_name, fun, *args):
             Error code: {res.status_code}')
         raise
 
-current_skip = None
-
-def get_skip():
-    global current_skip
-    if current_skip is None:
-        current_skip = 0
-        return current_skip
-    current_skip += 1000
-    return current_skip
-
-def process_query(query_id, skip_limit, to_date, lock):
-    log_prefix = 'process_query'
+def producer(tasks, start_date, event):
+    print("Producer starts")
+    from_date, to_date = increase_time_interval(start_date, TIME_RANGE)
     while True:
-        lock.acquire()
-        skip = get_skip()
-        lock.release()
-        if (skip >= skip_limit):
-            break
-        print(f'{log_prefix} Thread is processing {query_id} skip {skip} first items')
+        print(f'\nFetching Data from {from_date} to {to_date}')
+        query_id = initiate_query(from_date, to_date)
+        # Wait for the query to be processed
+        get_query_status(query_id)
+        # Log events are ready
+        data = fetch_log_events(query_id, {'skip': 0, 'limit': 1})
+        number_items = data['pagination']['totalItems']
+        print(f'Getting {number_items} items in total')
+        # Set up tasks for consumers
+        for i in range(0, number_items, 1000):
+            print("Producer puts", {'queryId': query_id, 'skip': i})
+            tasks.put({'queryId': query_id, 'skip': i, 'date': to_date})
+        # Send signals to start the consumers
+        if event.is_set() is False:
+            event.set()
+        from_date, to_date = increase_time_interval(to_date, TIME_RANGE)
+    print("Producer exits")
+
+def consumer(tasks, event):
+    event.wait()
+    print("Consumer starts")
+    while not tasks.empty():
+        task = tasks.get()
+        query_id, skip, date = task['queryId'], task['skip'], task['date']
+        print(f"Consumer gets log events from {query_id} and skip {skip} first events")
         logs = fetch_log_events(query_id, {'skip': skip, 'limit': 1000})
-        read_data_json(logs, to_date)
+        read_data_json(logs, date)
+    print("Consumer exits")
 
 # Main function
 def main():
     # fromDate = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
-    # time.sleep(20)
-    # toDate = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
+    # time.sleep(TIME_RANGE)
 
-    # 9357 items
-    # fromDate = "2024-04-12T01:58:26.257525Z"
-    # toDate = "2024-04-12T01:59:26.257525Z"
-
-    from_date = "2024-04-10T20:58:00.0Z"
-    # toDate = "2024-04-10T20:58:30.0Z"
-    from_date, to_date = increase_time_interval(from_date, TIME_RANGE)
-
-    lock = threading.Lock()
+    from_date = "2024-04-12T20:58:00.0Z"
+    # to_date = "2024-04-10T20:58:30.0Z"
+    # from_date, to_date = increase_time_interval(from_date, TIME_RANGE)
 
     # checker_f = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
     # checker_f = datetime.strptime(checker_f, "%Y-%m-%dT%H:%M:%S.%fZ")
-    while True:
-        print(f'\nFetching Data from {from_date} to {to_date}')
 
-        query_id = initiate_query(from_date, to_date)
-
-        # Wait for the query to be processed
-        get_query_status(query_id)
-
-        # events are ready
-        data = fetch_log_events(query_id, {'skip': 0, 'limit': 1})
-
-        number_items = data['pagination']['totalItems']
-        print(f'Getting {number_items} items in total')
-        skip_limit = number_items
-        global current_skip
-        current_skip = None
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-            for i in range(0, NUM_WORKERS):
-                executor.submit(process_query, query_id, skip_limit, to_date, lock)
-
-        from_date, to_date = increase_time_interval(to_date, TIME_RANGE)
+    tasks = queue.Queue()
+    event = threading.Event()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        executor.submit(producer, tasks, from_date, event)
+        for _ in range(NUM_WORKERS-1):
+            executor.submit(consumer, tasks, event)
 
     # checker_t = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
     # checker_t = datetime.strptime(checker_t, "%Y-%m-%dT%H:%M:%S.%fZ")
