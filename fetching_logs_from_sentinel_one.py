@@ -6,8 +6,6 @@ from datetime import datetime, timedelta
 import concurrent.futures
 import threading
 
-
-
 api_token = 'eyJraWQiOiJ0b2tlblNpZ25pbmciLCJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ2b3ZhbmtoYW5oQHplbml0ZWNoY3MuY29tIiwiaXNzIjoiYXV0aG4tdXMtZWFzdC0xLXByb2QiLCJkZXBsb3ltZW50X2lkIjoiNzE4MjIiLCJ0eXBlIjoidXNlciIsImV4cCI6MTcxNTQyMTcxMCwianRpIjoiNjEyNzI2NmMtMDUzNy00MzJkLWIzYzEtODQ0ZDZhY2EzZDQwIn0.mg1RZqZ1swfjETKfZqd9L55NcG__xkD4oRfZwknmLmBhbleFptVAzj8J7NTQY52nB67vNgGeN7z_jP3_piVhtA'
 headers = {'Authorization': f'ApiToken {api_token}'}
 
@@ -15,8 +13,8 @@ file_lock = threading.Lock()
 
 FINISHED = "FINISHED"
 RETRY = "RETRY"
-NUM_WORKERS = 2
-TIME_RANGE = 20
+NUM_WORKERS = 3
+TIME_RANGE = 30
 
 def terminal_request_id(query_id):
     url = 'https://usea1-016.sentinelone.net/web/api/v2.1/dv/cancel-query'
@@ -205,7 +203,7 @@ def main():
     # toDate = "2024-04-12T01:59:26.257525Z"
 
     from_date = "2024-04-10T20:58:00.0Z"
-    # toDate = "2024-04-10T20:58:20.0Z"
+    # toDate = "2024-04-10T20:58:30.0Z"
     from_date, to_date = increase_time_interval(from_date, TIME_RANGE)
 
     lock = threading.Lock()
@@ -251,3 +249,7 @@ if __name__ == "__main__":
 # eyJpZF9jb2x1bW4iOiAiJG9mZnNldCIsICJpZF92YWx1ZSI6IDEwMDAsICJpZF9zb3J0X29yZGVyIjogImFzYyIsICJzb3J0X2J5X2NvbHVtbiI6ICIkb2Zmc2V0IiwgInNvcnRfYnlfdmFsdWUiOiBudWxsLCAic29ydF9vcmRlciI6ICJhc2MifQ%3D%3D
 # eyJpZF9jb2x1bW4iOiAiJG9mZnNldCIsICJpZF92YWx1ZSI6IDIwMDAsICJpZF9zb3J0X29yZGVyIjogImFzYyIsICJzb3J0X2J5X2NvbHVtbiI6ICIkb2Zmc2V0IiwgInNvcnRfYnlfdmFsdWUiOiBudWxsLCAic29ydF9vcmRlciI6ICJhc2MifQ%3D%3D
 # eyJpZF9jb2x1bW4iOiAiJG9mZnNldCIsICJpZF92YWx1ZSI6IDMwMDAsICJpZF9zb3J0X29yZGVyIjogImFzYyIsICJzb3J0X2J5X2NvbHVtbiI6ICIkb2Zmc2V0IiwgInNvcnRfYnlfdmFsdWUiOiBudWxsLCAic29ydF9vcmRlciI6ICJhc2MifQ%3D%3D
+
+# 3 min 16 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 1 worker
+# 1 min 52 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 2 workers
+# 1 min 15 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 3 workers
