@@ -9,11 +9,9 @@ import queue
 
 api_token = 'eyJraWQiOiJ0b2tlblNpZ25pbmciLCJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ2b3ZhbmtoYW5oQHplbml0ZWNoY3MuY29tIiwiaXNzIjoiYXV0aG4tdXMtZWFzdC0xLXByb2QiLCJkZXBsb3ltZW50X2lkIjoiNzE4MjIiLCJ0eXBlIjoidXNlciIsImV4cCI6MTcxNTQyMTcxMCwianRpIjoiNjEyNzI2NmMtMDUzNy00MzJkLWIzYzEtODQ0ZDZhY2EzZDQwIn0.mg1RZqZ1swfjETKfZqd9L55NcG__xkD4oRfZwknmLmBhbleFptVAzj8J7NTQY52nB67vNgGeN7z_jP3_piVhtA'
 headers = {'Authorization': f'ApiToken {api_token}'}
-
 file_lock = threading.Lock()
 
 FINISHED = "FINISHED"
-RETRY = "RETRY"
 NUM_WORKERS = 4
 TIME_RANGE = 30
 LOGS_LIMIT_PER_REQUEST = 1000
@@ -68,43 +66,17 @@ def initiate_query(from_date, to_date):
 
     print(f'{log_prefix} started to initiate the query and get queryId')
     response = requests.post(url, json=payload, headers=headers)
-    data = handle_response(response, log_prefix, initiate_query, from_date, to_date)
-
-    if data == RETRY:
-        return initiate_query(from_date, to_date)
-
-    query_id = data['data']['queryId']
-    print(f'{log_prefix} done with returned queryId = {query_id}')
-    return query_id
+    return handle_response(response, log_prefix, initiate_query, from_date, to_date)
 
 # Function to send GET request using the queryId
 def fetch_log_events(query_id, options):
-    skip, limit = options['skip'], options['limit']
     log_prefix = 'fetch_log_events'
     url = f'https://usea1-016.sentinelone.net/web/api/v2.1/dv/events'
-    params = {'queryId': query_id, 'limit': limit, 'skip': skip}
+    params = {'queryId': query_id, 'limit': options['limit'], 'skip': options['skip']}
 
     print(f'{log_prefix} started with queryId = {query_id}')
     response = requests.get(url, params=params, headers=headers)
-    data = handle_response(response, log_prefix, fetch_log_events, query_id)
-
-    if data == RETRY:
-        return fetch_log_events(query_id, options)
-    return data
-
-# Function to send GET request using the queryId
-def fetch_log_events_with_cursor(query_id, cursor):
-    log_prefix = 'fetch_log_events_with_cursor'
-    url = f'https://usea1-016.sentinelone.net/web/api/v2.1/dv/events'
-    params = {'queryId': query_id, 'limit': 1000, 'cursor': cursor}
-
-    print(f'{log_prefix} started with query_id = {query_id}')
-    response = requests.get(url, params=params, headers=headers)
-    data = handle_response(response, log_prefix, fetch_log_events_with_cursor, query_id, cursor)
-
-    if data == RETRY:
-        return fetch_log_events_with_cursor(query_id, cursor)
-    return data
+    return handle_response(response, log_prefix, fetch_log_events, query_id, options)
 
 def get_query_status(query_id):
     log_prefix = 'get_query_status'
@@ -115,39 +87,55 @@ def get_query_status(query_id):
     # Wait for the service to process the query
     time.sleep(SHORT_TIME_SLEEP)
 
-    res = requests.get(url, params=params, headers=headers)
-    data = handle_response(res, log_prefix, get_query_status, query_id)
-    progress_status, response_state = data['data']['progressStatus'], data['data']['responseState']
-    if response_state != FINISHED:
-        print(f'{log_prefix} query is being processed. Progress Status: {progress_status}')
-        return get_query_status(query_id)
-    else:
-        print(f'{log_prefix} query execution is done. Query results are ready to be fetched')
-        return FINISHED
+    response = requests.get(url, params=params, headers=headers)
+    return handle_response(response, log_prefix, get_query_status, query_id)
 
 def handle_response(res, func_name, fun, *args):
+    def retry(func_name, sleep_time, fun, *args):
+        print(f'{func_name} retries after some seconds')
+        time.sleep(sleep_time)
+        return fun(*args)
+
+    def handle_success_initiate_query(data):
+        query_id = data['data']['queryId']
+        print(f'{func_name} done with returned queryId = {query_id}')
+        return query_id
+
+    def handle_success_fetch_log_events(data):
+        return data
+
+    def handle_success_get_query_status(data, func, *args):
+        progress_status, response_state = data['data']['progressStatus'], data['data']['responseState']
+        if response_state != FINISHED:
+            print(f'{func_name} query is being processed. Progress Status: {progress_status}')
+            return fun(*args)
+        else:
+            print(f'{func_name} query execution is done. Query results are ready to be fetched')
+            return FINISHED
+
+    if func_name not in ["initiate_query", "fetch_log_events", "get_query_status"]:
+        raise ValueError(f'Unknown function name: {func_name}')
+
     if res.status_code == 200:
         print(f'{func_name} done successfully')
-        return res.json()
+        data = res.json()
+        if func_name == "initiate_query":
+            return handle_success_initiate_query(data)
+        elif func_name == "fetch_log_events":
+            return handle_success_fetch_log_events(data)
+        elif func_name == "get_query_status":
+            return handle_success_get_query_status(data, fun, *args)
     elif res.status_code == 503:
         print(f'{func_name} got error {res.reason}. Going to wait for the service becomes available')
-        time.sleep(SHORT_TIME_SLEEP)
-        print(f'{func_name} retries after some seconds')
-        return RETRY
-        # return fun(*args)
+        return retry(func_name, SHORT_TIME_SLEEP, fun, *args)
     elif res.status_code == 429:
         print(f'{func_name} got too many requests. Wait some secs for the service to cool down')
         if (func_name == "initiate_query"):
-            time.sleep(LONG_TIME_SLEEP)
+            return retry(func_name, LONG_TIME_SLEEP, fun, *args)
         elif (func_name == "get_query_status"):
-            # pass is intended
-            pass
+            return retry(func_name, 0, fun, *args)
         else:
-            time.sleep(SHORT_TIME_SLEEP)
-        print(f'{func_name} retries after some times')
-        # return fun(*args)
-        # TODO
-        return RETRY
+            return retry(func_name, SHORT_TIME_SLEEP, fun, *args)
     else:
         print(
             f'Got error in {func_name}: \
