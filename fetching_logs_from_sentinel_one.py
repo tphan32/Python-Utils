@@ -13,7 +13,7 @@ file_lock = threading.Lock()
 
 FINISHED = "FINISHED"
 RETRY = "RETRY"
-NUM_WORKERS = 3
+NUM_WORKERS = 4
 TIME_RANGE = 30
 
 def terminal_request_id(query_id):
@@ -140,7 +140,7 @@ def get_query_status(query_id):
 
 def handle_response(res, func_name, fun, *args):
     SHORT_TIME_SLEEP = 5
-    LONG_TIME_SLEEP = 60
+    LONG_TIME_SLEEP = 40
     if res.status_code == 200:
         print(f'{func_name} done successfully')
         return res.json()
@@ -151,7 +151,7 @@ def handle_response(res, func_name, fun, *args):
         return RETRY
         # return fun(*args)
     elif res.status_code == 429:
-        print(f'{func_name} got too many requests. Wait 1 min for the service to cool down')
+        print(f'{func_name} got too many requests. Wait some secs for the service to cool down')
         if (func_name == "initiate_query"):
             time.sleep(LONG_TIME_SLEEP)
         elif (func_name == "get_query_status"):
@@ -244,11 +244,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# eyJpZF9jb2x1bW4iOiAiJG9mZnNldCIsICJpZF92YWx1ZSI6IDEwMDAsICJpZF9zb3J0X29yZGVyIjogImFzYyIsICJzb3J0X2J5X2NvbHVtbiI6ICIkb2Zmc2V0IiwgInNvcnRfYnlfdmFsdWUiOiBudWxsLCAic29ydF9vcmRlciI6ICJhc2MifQ%3D%3D
-# eyJpZF9jb2x1bW4iOiAiJG9mZnNldCIsICJpZF92YWx1ZSI6IDIwMDAsICJpZF9zb3J0X29yZGVyIjogImFzYyIsICJzb3J0X2J5X2NvbHVtbiI6ICIkb2Zmc2V0IiwgInNvcnRfYnlfdmFsdWUiOiBudWxsLCAic29ydF9vcmRlciI6ICJhc2MifQ%3D%3D
-# eyJpZF9jb2x1bW4iOiAiJG9mZnNldCIsICJpZF92YWx1ZSI6IDMwMDAsICJpZF9zb3J0X29yZGVyIjogImFzYyIsICJzb3J0X2J5X2NvbHVtbiI6ICIkb2Zmc2V0IiwgInNvcnRfYnlfdmFsdWUiOiBudWxsLCAic29ydF9vcmRlciI6ICJhc2MifQ%3D%3D
 
 # 3 min 16 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 1 worker
 # 1 min 52 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 2 workers
