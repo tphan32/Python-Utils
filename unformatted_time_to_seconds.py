@@ -1,239 +1,80 @@
-import requests
-import time
-import sys
-import json
-from datetime import datetime, timedelta
+def unformatted_time_to_seconds(time_str):
+    def hhmmss_to_seconds(time_str):
+        if ':' not in time_str:
+            return 0
+        hh, mm , ss = map(int, time_str.split(':')) 
+        return ss + 60*(mm + 60*hh)
 
-api_token = ''
-# Update time interval every time request a batch fetching data (query ID)
+    def time_abbreviation_to_seconds(time_str):
+        total_seconds = 0        
+        if len(time_str) < 2:
+            return total_seconds
 
-headers = {'Authorization': f'ApiToken {api_token}'}
+        import re
+        seconds_per_unit = {"s": 1, "sec": 1,
+                            "m": 60, "mins": 60,
+                            "h": 3600, "hrs": 3600,
+                            "d": 86400, "ds": 86400, "days": 86400,
+                            "w": 604800, "wk": 604800, "wks": 604800, 
+                            "mo": 2629744, "mos": 2629744,
+                            "y": 31556926, "yr": 31556926, "yrs": 31556926}
+        time_str = time_str.lower()
 
-FINISHED = "FINISHED"
-TIME_RANGE = 20
+        parsed_time = re.findall(r'\d+', time_str)
+        parsed_time_units = re.findall(r'[a-z]+', time_str)
+        if len(parsed_time) != len(parsed_time_units):
+            raise Exception("Can't calculate due to invalid input time: " + time_str)
+        for i in range(len(parsed_time)):
+            total_seconds += int(parsed_time[i]) * seconds_per_unit[parsed_time_units[i]]  
+        return total_seconds
 
+    total_seconds = hhmmss_to_seconds(time_str)
+    if total_seconds == 0:
+        total_seconds = time_abbreviation_to_seconds(time_str)
+    return total_seconds
 
-def update_time_interval(toDate, time_range):
-    newToDate = calculate_to_date(toDate, time_range)
-    return toDate, newToDate, time_range
+from enum import Enum
+TimeUnit = Enum('TimeUnit', ['SECOND', 'MINUTE', 'HOUR', 'DAY'])
 
-
-def calculate_to_date(fromDate, time_range):
-    toDate = datetime.strptime(
-        fromDate, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(seconds=time_range)
-    return toDate.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-# Function to send POST request and extract queryId
-
-
-def send_post_request(fromDate, toDate):
-    url = 'https://usea1-016.sentinelone.net//web/api/v2.1/dv/init-query'
-    payload = {
-        "accountIds": [""],
-        "siteIds": [""],
-        "fromDate": fromDate,
-        "limit": 20000,
-        "queryType": ["events"],
-        "toDate": toDate,
-        "isVerbose": "false",
-        # "timeFrame": "Last 100 Hours",
-        "query": "AgentName IS NOT EMPTY",
-
-    }
-    headers = {'Authorization': f'ApiToken {api_token}'}
-    print("send_post_request started to initate the query and get queryId")
-    response = requests.post(url, json=payload, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        query_id = data['data']['queryId']
-        if query_id:
-            print("send_post_request done")
-            return query_id, fromDate, toDate
-        else:
-            print("Can't get queryId")
-            raise
-    elif response.status_code == 429:
-        print("Too many requests. Wait 1 min for the service to cool down")
-        time.sleep(60)
-        raise
+def convert_seconds_to(desired_unit, seconds):
+    if desired_unit == TimeUnit.SECOND.name:
+        return seconds
+    elif desired_unit == TimeUnit.MINUTE.name:
+        return seconds/60
+    elif desired_unit == TimeUnit.HOUR.name:
+        return seconds/3600
+    elif desired_unit == TimeUnit.DAY.name:
+        return seconds/86400
     else:
-        print(
-            f'Got error in send_post_request: \
-            Reason {response.reason} \
-            Error code: {response.status_code}')
-        raise
-
-
-def terminal_request_id(query_id):
-    url = 'https://usea1-016.sentinelone.net/web/api/v2.1/dv/cancel-query'
-    payload = {"queryId": query_id}
-    headers = {'Authorization': f'ApiToken {api_token}'}
-    # time.sleep(1)
-    try:
-        response = requests.post(
-            url, json=payload, headers=headers)  # Indicate success
-    except requests.exceptions.Timeout:
-        return terminal_request_id(query_id)
-    except requests.exceptions.RequestException as e:
-        return terminal_request_id(query_id)
-    if response.status_code == 200:
-       # print("success")
-        return 1  # Indicate success
-    return -1  # Indicate failure
-
-# read data to json
-
-
-def read_data_json(data, toDate):
-    try:
-        # current_time = datetime.now()
-        # Convert the timestamp to a human-readable format for the filename
-        # formatted_time = toDate.strftime('%Y-%m-%d_%H')
-        toDate_datetime = datetime.strptime(toDate, '%Y-%m-%dT%H:%M:%S.%fZ')
-        formatted_time = toDate_datetime.strftime('%Y-%m-%d_%H')
-        # Construct the filename
-        # filename = f'./logs/events_{toDate}.log'
-        filename = f'events_{formatted_time}.log'
-        print("Writing events to file")
-        for obj in data['data']:
-            # Write the JSON object to the file
-            with open(filename, 'a') as file:
-                file.write(json.dumps(obj) + '\n')
-    except IOError as e:
-        print("Error writing to file:", e)
-# Function to send GET request using the queryId
-
-
-def send_get_request(query_id):
-    url = f'https://usea1-016.sentinelone.net/web/api/v2.1/dv/events'
-    params = {'queryId': query_id, 'limit': 1000}
-    print(f'send_get_request started with queryId = {query_id}')
-    response = requests.get(url, params=params, headers=headers)
-    if response.status_code == 200:
-        print(f'send_get_request with queryId = {query_id} done')
-        return response.json()
+        raise Exception("Unsupported time unit: " + desired_unit)
+        
+for i in range(len(df['Resolution Time'])):
+    df_cell = df['Resolution Time'].iloc[i]
+    desired_time_unit = TimeUnit.HOUR.name
+    converted_time = 0
+    if type(df_cell) is str:
+        converted_time = convert_seconds_to(desired_time_unit, unformatted_time_to_seconds(df_cell))
+    elif type(df_cell) is int:
+        converted_time = convert_seconds_to(desired_time_unit, df_cell)
     else:
-        print(
-            f'Got error in send_get_request: \
-            Reason {response.reason} \
-            Error code: {response.status_code}')
-        raise
+        raise Exception("Invalid time: " + df_cell)
+    
+    df['Resolution Time'].iloc[i] = round(converted_time, 2)
 
-
-# Function to send GET request using the queryId
-def send_get_request_cursor(query_id, cursor):
-    url = f'https://usea1-016.sentinelone.net/web/api/v2.1/dv/events'
-    params = {'queryId': query_id, 'limit': 1000, 'cursor': cursor}
-
-    print(f'send_get_request_cursor started with query_id = {query_id}')
-    response = requests.get(url, params=params, headers=headers)
-
-    if response.status_code == 200:
-        return response.json()
-    elif response.status_code == 503:
-        print(
-            f'Got error {response.reason}. Going to wait for the service become available')
-        time.sleep(5)
-        return send_get_request_cursor(query_id, cursor)
+for i in range(len(df['Total Response Time'])):
+    df_cell = df['Total Response Time'].iloc[i]
+    desired_time_unit = TimeUnit.HOUR.name
+    converted_time = 0
+    if type(df_cell) is str:
+        converted_time = convert_seconds_to(desired_time_unit, unformatted_time_to_seconds(df_cell))
+    elif type(df_cell) is int:
+        converted_time = convert_seconds_to(desired_time_unit, df_cell)
     else:
-        print(
-            f'Got error in send_get_request_cursor: \
-            Reason {response.reason} \
-            Error code: {response.status_code}')
-        raise
+        raise Exception("Invalid time: " + df_cell)
+    
+    df['Total Response Time'].iloc[i] = round(converted_time, 2)
 
 
-def get_query_status(query_id):
-    url = 'https://usea1-016.sentinelone.net/web/api/v2.1/dv/query-status'
-    params = {'queryId': query_id}
-    print(f'Start getting status for queryId = {query_id}')
-    # Wait for the service to process the query
-    time.sleep(4)
-    res = requests.get(url, params=params, headers=headers)
-    if res.status_code == 200:
-        data = res.json()['data']
-        progressStatus, responseState = data['progressStatus'], data['responseState']
-        if responseState != FINISHED:
-            print(
-                f'Query is being processed. Progress Status: {progressStatus}')
-            return get_query_status(query_id)
-        else:
-            print("Query execution is done. Query results are ready to be fetched")
-            return FINISHED
-    else:
-        print("Something went wrong in get_query_status")
-        raise
-
-# Main function
-
-
-def main():
-    # fromDate = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
-    # time.sleep(20)
-    # toDate = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
-
-    # 9357 items
-    # fromDate = "2024-04-12T01:58:26.257525Z"
-    # toDate = "2024-04-12T01:59:26.257525Z"
-
-    # 20000 items
-    fromDate = "2024-04-10T20:58:00.0Z"
-    # toDate = "2024-04-10T20:58:20.0Z"
-    toDate = calculate_to_date(fromDate, TIME_RANGE)
-
-    # checker_f = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
-    # checker_f = datetime.strptime(checker_f, "%Y-%m-%dT%H:%M:%S.%fZ")
-
-    while True:
-        print('Fetching Data In Range', fromDate, toDate)
-
-        query_id, fromDate, toDate = send_post_request(fromDate, toDate)
-
-        print("Received new queryId:", query_id)
-        get_query_status(query_id)
-
-        # events are ready
-        data = send_get_request(query_id)
-
-        number_items = data['pagination']['totalItems']
-        print(f'Getting {number_items} items in total')
-        while True:
-            read_data_json(data, toDate)
-            cursor = data['pagination']["nextCursor"]
-            if cursor is None:
-                break
-            data = send_get_request_cursor(query_id, cursor)
-
-        fromDate, toDate, time_range = update_time_interval(toDate, TIME_RANGE)
-
-        # else:
-        #     fromDate, toDate, time_range = update_time_interval_again(
-        #         fromDate, toDate, time_range - 15)
-        # data = send_get_request(query_id)
-        # while data['pagination']['totalItems'] == 20000:
-        #  print("Rerequest Query id")
-        # terminal = terminal_request_id(query_id)
-        #     fromDate, toDate, time_range = update_time_interval_again(
-        #         fromDate, toDate, time_range - 15)
-        #     query_id, fromDate, toDate, time_range = send_post_request(
-        #         fromDate, toDate, time_range)
-        #     data = send_get_request(query_id)
-        #     # print("New time number ")
-        #     # print(fromDate, toDate)
-        #     # print(data['pagination']['totalItems'])
-        #     # print("High s1 logs")
-        # read_data_json(data, toDate)
-
-        #terminal = terminal_request_id(query_id)
-        # checker_t = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f") + 'Z'
-        # checker_t = datetime.strptime(checker_t, "%Y-%m-%dT%H:%M:%S.%fZ")
-        # if (checker_t - checker_f).total_seconds() < 60:
-        #     sleep_time = 60 - (checker_t - checker_f).total_seconds()
-        # # print(sleep_time)
-        #     time.sleep(sleep_time)
-        # # time.sleep(60)  # Wait before sending the next request batch
-
-
-if __name__ == "__main__":
-    main()
+# Convert those features to a list with float datatype
+df['Resolution Time'] = list(df['Resolution Time'])
+df['Total Response Time'] = list(df['Total Response Time'])
