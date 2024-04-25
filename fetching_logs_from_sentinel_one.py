@@ -8,7 +8,7 @@ import threading
 import queue
 from enum import Enum
 
-api_token = 'eyJraWQiOiJ0b2tlblNpZ25pbmciLCJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ2b3ZhbmtoYW5oQHplbml0ZWNoY3MuY29tIiwiaXNzIjoiYXV0aG4tdXMtZWFzdC0xLXByb2QiLCJkZXBsb3ltZW50X2lkIjoiNzE4MjIiLCJ0eXBlIjoidXNlciIsImV4cCI6MTcxNTQyMTcxMCwianRpIjoiNjEyNzI2NmMtMDUzNy00MzJkLWIzYzEtODQ0ZDZhY2EzZDQwIn0.mg1RZqZ1swfjETKfZqd9L55NcG__xkD4oRfZwknmLmBhbleFptVAzj8J7NTQY52nB67vNgGeN7z_jP3_piVhtA'
+api_token = ''
 headers = {'Authorization': f'ApiToken {api_token}'}
 file_lock = threading.Lock()
 
@@ -63,7 +63,7 @@ def calculate_new_to_date(from_date, time_range):
 
 # Function to send POST request and extract queryId
 def initiate_query(from_date, to_date):
-    log_prefix = 'initiate_query'
+    log_prefix = SentinelOneFunctionName.INITIATE_QUERY.value
     url = 'https://usea1-016.sentinelone.net//web/api/v2.1/dv/init-query'
     payload = {
         "accountIds": ["1530556909291787901"],
@@ -84,7 +84,7 @@ def initiate_query(from_date, to_date):
 
 # Function to send GET request using the queryId
 def fetch_log_events(query_id, options):
-    log_prefix = 'fetch_log_events'
+    log_prefix = SentinelOneFunctionName.FETCH_LOG_EVENTS.value
     url = f'https://usea1-016.sentinelone.net/web/api/v2.1/dv/events'
     params = {'queryId': query_id, 'limit': options['limit'], 'skip': options['skip']}
 
@@ -93,7 +93,7 @@ def fetch_log_events(query_id, options):
     return handle_response(response, log_prefix, fetch_log_events, query_id, options)
 
 def get_query_status(query_id):
-    log_prefix = 'get_query_status'
+    log_prefix = SentinelOneFunctionName.GET_QUERY_STATUS.value
     url = 'https://usea1-016.sentinelone.net/web/api/v2.1/dv/query-status'
     params = {'queryId': query_id}
 
