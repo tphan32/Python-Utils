@@ -1,6 +1,5 @@
 import requests
 import time
-import sys
 import json
 from datetime import datetime, timedelta
 import concurrent.futures
@@ -152,9 +151,7 @@ def handle_response(res, func_name, fun, *args):
             return retry(func_name, SleepTimeInSec.FIVE.value, fun, *args)
     else:
         print(
-            f'Got error in {func_name}: \
-            Reason {res.reason} \
-            Error code: {res.status_code}')
+            f'Got error in {func_name}: Reason {res.reason} Error code: {res.status_code}')
         raise
 
 def producer(tasks, start_date, event):
@@ -218,7 +215,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# 3 min 16 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 1 worker
-# 1 min 52 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 2 workers
-# 1 min 15 sec for fetching 16530 items from 2024-04-10T20:58:00.0Z to 2024-04-10T20:58:30.0Z with 3 workers
